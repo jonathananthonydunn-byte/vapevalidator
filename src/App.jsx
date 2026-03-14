@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { analyzeFramesLocally } from "./analyzer.js";
 
 const FONT_LINK = document.createElement("link");
 FONT_LINK.rel = "stylesheet";
@@ -69,15 +70,7 @@ function getSystemPrompt(trickId) {
 }
 
 async function analyzeFrames(frames, trickId) {
-  // Calls our Vercel serverless proxy (keeps API key secret)
-  const res = await fetch("/api/analyze", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ frames, trickId }),
-  });
-  const data = await res.json();
-  if (data.error) throw new Error(data.error);
-  return data;
+  return analyzeFramesLocally(frames, trickId);
 }
 
 function captureFrameB64(video, canvas) {
