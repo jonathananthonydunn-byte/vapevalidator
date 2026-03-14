@@ -3,9 +3,9 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
  
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return res.status(500).json({ error: "NO_API_KEY: ANTHROPIC_API_KEY environment variable is not set." });
+    return res.status(500).json({ error: "NO_API_KEY: Add GEMINI_API_KEY in Vercel environment variables." });
   }
  
   const { frames, trickId } = req.body || {};
@@ -15,63 +15,50 @@ export default async function handler(req, res) {
  
   const brutal = `SCORING PHILOSOPHY: Be a harsh, unforgiving judge. Most attempts should score 3-6. Scores of 8+ require genuinely impressive, dense, well-executed tricks. A score of 9 should feel rare. A 10 should feel nearly impossible. If the vapor is thin, wispy, or barely visible, score low (1-4). Do NOT give out easy high scores.`;
  
-  const systemPrompts = {
-    ghost: `You are VapeValidator, a brutally honest vape trick judge.\n${brutal}\n\nTrick: Ghost Inhale.\nScoring (1.0-10.0, one decimal):\n- cloud 0-3: size and density. Thin wispy exhale = 0-1. Dense ball = 2-3.\n- retention 0-3: how little vapor was lost. Major dissipation before re-inhale = 0-1.\n- execution 0-4: spherical shape of cloud + completeness of re-inhale. Sloppy = 0-1. Clean spherical re-inhale = 3-4.\nIf you see mostly empty air or a barely visible puff, score 1-3.\nRespond ONLY with JSON: {"score":<1.0-10.0>,"summary":"<one brutal honest sentence>","cloud":<0-3>,"retention":<0-3>,"execution":<0-4>}`,
-    orings: `You are VapeValidator, a brutally honest vape trick judge.\n${brutal}\n\nTrick: O-Rings.\nCount only DISTINCT, clearly circular rings. Blobs and shapeless puffs do NOT count.\nScoring (1.0-10.0, one decimal):\n- roundness 0-4: perfectly circular rings = 3-4. Deformed = 0-1.\n- consistency 0-3: uniform size and shape across rings.\n- distance 0-3: how far rings travel before dissolving.\nIf no clear rings are visible, ring_count = 0 and score = 1-3.\nRespond ONLY with JSON: {"score":<1.0-10.0>,"ring_count":<int>,"summary":"<one brutal honest sentence>","roundness":<0-4>,"consistency":<0-3>,"distance":<0-3>}`,
-    french: `You are VapeValidator, a brutally honest vape trick judge.\n${brutal}\n\nTrick: French Inhale. Vapor must visibly flow UPWARD from open mouth into nostrils continuously.\nScoring (1.0-10.0, one decimal):\n- flow 0-4: continuous unbroken vapor stream. Any gaps = major deduction.\n- direction 0-3: clearly travelling upward toward nose. Sideways or downward = 0.\n- volume 0-3: thick, dense, visible vapor stream. Wispy = 0-1.\nIf there is no visible upward vapor movement, score 1-3.\nRespond ONLY with JSON: {"score":<1.0-10.0>,"summary":"<one brutal honest sentence>","flow":<0-4>,"direction":<0-3>,"volume":<0-3>}`,
+  const prompts = {
+    ghost: `You are VapeValidator, a brutally honest vape trick judge.\n${brutal}\n\nTrick: Ghost Inhale. The user exhales a ball of vapor then re-inhales it.\nScoring (1.0-10.0, one decimal):\n- cloud 0-3: size and density. Thin wispy exhale = 0-1. Dense ball = 2-3.\n- retention 0-3: how little vapor was lost before re-inhale = 0-1.\n- execution 0-4: spherical shape + clean re-inhale. Sloppy = 0-1. Perfect = 3-4.\nRespond ONLY with JSON, no markdown: {"score":<1.0-10.0>,"summary":"<one brutal sentence>","cloud":<0-3>,"retention":<0-3>,"execution":<0-4>}`,
+    orings: `You are VapeValidator, a brutally honest vape trick judge.\n${brutal}\n\nTrick: O-Rings. Count only DISTINCT clearly circular rings. Blobs do NOT count.\nScoring (1.0-10.0, one decimal):\n- roundness 0-4: perfectly circular = 3-4. Deformed = 0-1.\n- consistency 0-3: uniform size and shape.\n- distance 0-3: how far rings travel.\nRespond ONLY with JSON, no markdown: {"score":<1.0-10.0>,"ring_count":<int>,"summary":"<one brutal sentence>","roundness":<0-4>,"consistency":<0-3>,"distance":<0-3>}`,
+    french: `You are VapeValidator, a brutally honest vape trick judge.\n${brutal}\n\nTrick: French Inhale. Vapor must visibly flow UPWARD from mouth into nostrils.\nScoring (1.0-10.0, one decimal):\n- flow 0-4: continuous unbroken stream. Gaps = major deduction.\n- direction 0-3: clearly going upward toward nose.\n- volume 0-3: thick dense visible vapor. Wispy = 0-1.\nRespond ONLY with JSON, no markdown: {"score":<1.0-10.0>,"summary":"<one brutal sentence>","flow":<0-4>,"direction":<0-3>,"volume":<0-3>}`,
   };
  
+  const prompt = prompts[trickId] || prompts.ghost;
+ 
+  const parts = [
+    { text: prompt },
+    ...frames.map(b64 => ({
+      inline_data: { mime_type: "image/jpeg", data: b64 },
+    })),
+    { text: "Now analyze the frames and respond with only the JSON." },
+  ];
+ 
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1000,
-        system: systemPrompts[trickId] || systemPrompts.ghost,
-        messages: [{
-          role: "user",
-          content: [
-            { type: "text", text: `Analyze these ${frames.length} frames of a vape trick video. Be harsh.` },
-            ...frames.map(b64 => ({
-              type: "image",
-              source: { type: "base64", media_type: "image/jpeg", data: b64 },
-            })),
-          ],
-        }],
-      }),
-    });
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts }],
+          generationConfig: { temperature: 0.4, maxOutputTokens: 500 },
+        }),
+      }
+    );
  
     const rawText = await response.text();
- 
     let data;
-    try {
-      data = JSON.parse(rawText);
-    } catch {
-      return res.status(500).json({ error: "API_PARSE_ERROR: " + rawText.slice(0, 300) });
-    }
+    try { data = JSON.parse(rawText); }
+    catch { return res.status(500).json({ error: "PARSE_ERROR: " + rawText.slice(0, 300) }); }
  
     if (data.error) {
-      return res.status(500).json({ error: "ANTHROPIC_ERROR: " + JSON.stringify(data.error) });
+      return res.status(500).json({ error: "GEMINI_ERROR: " + JSON.stringify(data.error) });
     }
  
-    if (!data.content) {
-      return res.status(500).json({ error: "NO_CONTENT: " + JSON.stringify(data).slice(0, 300) });
-    }
- 
-    const text = data.content.find(b => b.type === "text")?.text || "{}";
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
     const clean = text.replace(/```json|```/g, "").trim();
  
     let parsed;
-    try {
-      parsed = JSON.parse(clean);
-    } catch {
-      return res.status(500).json({ error: "JSON_PARSE_ERROR: " + clean.slice(0, 300) });
-    }
+    try { parsed = JSON.parse(clean); }
+    catch { return res.status(500).json({ error: "JSON_PARSE_ERROR: " + clean.slice(0, 300) }); }
  
     return res.status(200).json(parsed);
  
@@ -79,3 +66,4 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "FETCH_ERROR: " + err.message });
   }
 }
+ 
